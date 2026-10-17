@@ -11,8 +11,8 @@ pub enum QueryKind {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProbeKind {
-    #[default]
     Tcp,
+    #[default]
     Icmp,
 }
 
@@ -47,11 +47,10 @@ impl Default for Settings {
     fn default() -> Self {
         let servers = [
             ("本地运营商", "202.103.224.68", true),
-            ("阿里 DNS", "223.5.5.5", true),
             ("腾讯 DNS", "119.29.29.29", true),
-            ("114 DNS", "114.114.114.114", true),
-            ("Cloudflare", "1.1.1.1", false),
-            ("Google", "8.8.8.8", false),
+            ("阿里 DNS", "223.5.5.5", true),
+            ("字节跳动", "180.184.1.1", true),
+            ("114DNS", "114.114.114.114", true),
         ]
         .into_iter()
         .map(|(name, address, enabled)| DnsServer {
@@ -62,9 +61,9 @@ impl Default for Settings {
         })
         .collect();
         Self {
-            domain: String::new(),
+            domain: "account.microsoft.com".into(),
             query: QueryKind::Ipv4,
-            probe: ProbeKind::Tcp,
+            probe: ProbeKind::Icmp,
             port: 80,
             samples: 5,
             timeout_ms: 2000,
@@ -335,7 +334,7 @@ mod tests {
         settings
             .save_server(Some(0), "运营商备用", "202.103.224.69")
             .unwrap();
-        assert_eq!(settings.servers.len(), 6);
+        assert_eq!(settings.servers.len(), 5);
         assert!(!settings.servers[0].enabled);
         assert!(!settings.servers[0].custom);
         assert_eq!(settings.servers[0].address.to_string(), "202.103.224.69");
@@ -344,14 +343,14 @@ mod tests {
             .save_server(Some(0), "本地 DNS", "202.103.224.69")
             .unwrap();
         settings.save_server(None, "自定义", "8.8.4.4").unwrap();
-        settings.servers[6].enabled = false;
+        settings.servers[5].enabled = false;
         settings
-            .save_server(Some(6), "IPv6 DNS", "2606:4700:4700::1111")
+            .save_server(Some(5), "IPv6 DNS", "2606:4700:4700::1111")
             .unwrap();
-        assert_eq!(settings.servers.len(), 7);
-        assert!(settings.servers[6].custom);
-        assert!(!settings.servers[6].enabled);
-        assert!(settings.servers[6].address.is_ipv6());
+        assert_eq!(settings.servers.len(), 6);
+        assert!(settings.servers[5].custom);
+        assert!(!settings.servers[5].enabled);
+        assert!(settings.servers[5].address.is_ipv6());
     }
 
     #[test]

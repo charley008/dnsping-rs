@@ -17,6 +17,7 @@ fn main() -> Result<()> {
     };
     let mut settings = Settings {
         domain,
+        probe: ProbeKind::Tcp,
         ..Default::default()
     };
     while let Some(arg) = args.next() {

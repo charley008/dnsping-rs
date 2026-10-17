@@ -131,7 +131,7 @@ mod tests {
         let dir = root.path().join("app");
         let (settings, warning) = load_from(&dir, &root.path().join("old"));
         assert!(warning.is_none());
-        assert_eq!(settings.servers.len(), 6);
+        assert_eq!(settings.servers.len(), 5);
         assert!(dir.join("settings.json").exists());
     }
     #[test]
