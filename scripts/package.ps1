@@ -5,7 +5,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Release build failed' }
     New-Item -ItemType Directory -Path dist -Force | Out-Null
     Copy-Item -LiteralPath target/release/dnsping.exe -Destination dist/DNSPing.exe
-    Copy-Item -LiteralPath LICENSE -Destination dist/LICENSE.txt
+    & ./scripts/notices.ps1
     Copy-Item -LiteralPath settings.example.json -Destination dist/settings.json
     $hash = Get-FileHash -LiteralPath dist/DNSPing.exe -Algorithm SHA256
     ('{0}  DNSPing.exe' -f $hash.Hash.ToLowerInvariant()) | Set-Content -LiteralPath dist/SHA256SUMS.txt -Encoding ascii

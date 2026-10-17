@@ -2,6 +2,7 @@ use crate::model::ProbeKind;
 use anyhow::{Context, Result, bail};
 use std::{
     net::{IpAddr, SocketAddr},
+    sync::{Arc, OnceLock},
     time::{Duration, Instant},
 };
 
@@ -20,9 +21,23 @@ pub async fn sample(ip: IpAddr, kind: ProbeKind, port: u16, timeout: Duration) -
             drop(stream);
             Ok(ms)
         }
-        ProbeKind::Icmp => tokio::task::spawn_blocking(move || icmp(ip, timeout))
+        ProbeKind::Icmp => {
+            // Keep the permit inside the blocking job: cancelling its async waiter must
+            // not let a new test bypass the limit while Windows is still waiting.
+            static LIMIT: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
+            let permit = LIMIT
+                .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(32)))
+                .clone()
+                .acquire_owned()
+                .await
+                .context("ICMP 调度已关闭")?;
+            tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                icmp(ip, timeout)
+            })
             .await
-            .context("ICMP 任务异常")?,
+            .context("ICMP 任务异常")?
+        }
     }
 }
 

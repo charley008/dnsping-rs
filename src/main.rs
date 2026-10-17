@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod layout;
 mod ui;
 mod ui_theme;
 
@@ -15,6 +16,7 @@ fn main() {
             .build()
             .expect("创建网络运行时失败"),
     );
+    let ui_runtime = runtime.clone();
     Application::new()
         .with_assets(gpui_component_assets::Assets)
         .run(move |cx: &mut App| {
@@ -27,19 +29,19 @@ fn main() {
                 }
             })
             .detach();
-            let display_size = cx
-                .primary_display()
-                .map(|d| d.bounds().size)
-                .unwrap_or(size(px(1920.), px(1080.)));
-            let initial_size = size(
-                px(1280.).min(display_size.width - px(48.)).max(px(1080.)),
-                px(880.).min(display_size.height - px(80.)).max(px(720.)),
-            );
-            let bounds = Bounds::centered(None, initial_size, cx);
+            let work_area = layout::primary_work_area().unwrap_or_else(|| {
+                cx.primary_display()
+                    .map(|d| d.bounds())
+                    .unwrap_or(Bounds::new(
+                        point(px(0.), px(0.)),
+                        size(px(1280.), px(800.)),
+                    ))
+            });
+            let (bounds, minimum) = layout::window_geometry(work_area);
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    window_min_size: Some(size(px(1080.), px(720.))),
+                    window_min_size: Some(minimum),
                     titlebar: Some(TitlebarOptions {
                         title: Some("DNSPing · DNS 优选".into()),
                         appears_transparent: true,
@@ -50,11 +52,16 @@ fn main() {
                 },
                 move |window, cx| {
                     let view =
-                        cx.new(|cx| ui::Dashboard::new(runtime, settings, warning, window, cx));
+                        cx.new(|cx| ui::Dashboard::new(ui_runtime, settings, warning, window, cx));
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )
             .expect("创建 DNSPing 窗口失败");
             cx.activate(true);
         });
+    // Windows ICMP calls own their reply buffers until the OS completes them.
+    // Do not block process exit waiting for those bounded background requests.
+    if let Ok(runtime) = Arc::try_unwrap(runtime) {
+        runtime.shutdown_background();
+    }
 }

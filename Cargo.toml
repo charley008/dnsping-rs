@@ -1,6 +1,6 @@
 [package]
 name = "dnsping"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 description = "Windows DNS comparison and network latency desktop tool"
 license = "MIT"
@@ -16,7 +16,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 idna = "1"
-windows = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_Foundation", "Win32_System_IO"] }
+windows = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_Foundation", "Win32_System_IO", "Win32_Graphics_Gdi", "Win32_UI_HiDpi"] }
 
 [build-dependencies]
 winresource = "0.1"

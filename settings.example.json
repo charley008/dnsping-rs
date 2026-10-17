@@ -1,4 +1,5 @@
 {
+  "packaged_defaults": true,
   "domain": "account.microsoft.com",
   "query": "Ipv4",
   "probe": "Icmp",

@@ -1,13 +1,13 @@
-Windows x64 便携版，下载 `DNSPing-windows-x64.zip`，解压后运行 `DNSPing.exe`。无需安装 Rust、Go 或 WebView2。
+Windows x64 便携版，下载 `DNSPing-windows-x64.zip`，解压后运行 `DNSPing.exe`。
 
-- 向多个 DNS 独立查询，比较解析耗时和首个返回 IP 的 TCP / ICMP 延迟，辅助选择 SmartDNS 上游。
-- 内置与自定义 DNS 均可编辑名称和 IP，支持添加 DNS，内置及自定义 DNS 均可删除。
-- 默认 DNS：本地运营商、腾讯 DNS、阿里 DNS、字节跳动、114DNS，全部默认启用。
-- 默认查询域名为 `account.microsoft.com`，默认测速模式为 Ping（ICMP）。
-- 深色 / 浅色一键切换，自动记住主题；紧凑结果布局。
-- 复制推荐 DNS / IP、取消测试、导出 CSV。
-- 配置为程序同目录的 `settings.json`，可以关闭程序后用文本编辑器手动修改；首次使用会创建配置或迁移旧配置。
+- 压缩顶部标题和留白，紧凑布局为测速结果提供更多空间。
+- 按屏幕工作区及 DPI 缩放计算初始窗口；小窗口支持控制区换行、DNS 列表切换和结果横向滚动。
+- 配置保存失败独立显示；增加按程序目录隔离的升级保护副本，并恢复旧版 AppData 配置。
+- DNS 解析出新 IP 后立即开始测速；相同 IP 共用样本，迟到的 DNS 结果也能获得完整统计。
+- 限制 ICMP 跨轮次并发，关闭窗口不等待旧请求超时；停止后不再接收旧轮次结果。
+- 固定 Rust 工具链并缓存依赖和编译产物。
+- 必要的第三方许可证和声明合并进现有 `LICENSE.txt`，不额外添加许可证目录。
 
-发行 ZIP 包含默认 `settings.json`。升级时关闭程序，保留原有 `settings.json`，仅替换程序及其他文件，以免覆盖你的配置。
+从 v0.1.1 或更早版本首次升级时，请先备份并保留原有 `settings.json`。v0.1.2 启动并成功保存后，后续覆盖解压的默认配置可从升级保护副本恢复。
 
-ZIP 内仅包含 `DNSPing.exe`、`settings.json`、`LICENSE.txt` 和用于校验程序的 `SHA256SUMS.txt`。发布页单独提供的 `SHA256SUMS.txt` 用于校验 ZIP。
+ZIP 仅包含 `DNSPing.exe`、`settings.json`、`LICENSE.txt` 和程序校验文件 `SHA256SUMS.txt`；发布页的同名校验文件用于校验 ZIP。

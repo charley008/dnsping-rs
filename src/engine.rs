@@ -13,6 +13,7 @@ pub enum Event {
     Resolved {
         row: usize,
         result: Result<dns::Resolution, String>,
+        samples: Vec<Result<f64, String>>,
     },
     Sample {
         ip: IpAddr,
@@ -31,65 +32,120 @@ pub async fn run(settings: Settings, sender: Sender<Event>, cancel: Cancellation
 }
 
 async fn run_inner(settings: Settings, sender: &Sender<Event>) {
+    run_with_resolver(
+        settings,
+        sender,
+        |domain, server, kind, timeout| async move {
+            dns::resolve(&domain, SocketAddr::new(server, 53), kind, timeout).await
+        },
+    )
+    .await;
+}
+
+async fn run_with_resolver<F, Fut>(settings: Settings, sender: &Sender<Event>, resolve: F)
+where
+    F: Fn(String, IpAddr, QueryKind, Duration) -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<dns::Resolution>> + Send + 'static,
+{
     let timeout = Duration::from_millis(settings.timeout_ms);
-    let mut queries = JoinSet::new();
+    enum Work {
+        Resolved(usize, Result<dns::Resolution, String>),
+        Sample(IpAddr, Result<f64, String>, u32),
+    }
+    let mut work = JoinSet::new();
     for (row, server) in settings.servers.iter().filter(|s| s.enabled).enumerate() {
         let domain = settings.domain.clone();
         let server = server.address;
         let kind = settings.query;
-        queries.spawn(async move {
-            (
-                row,
-                dns::resolve(&domain, SocketAddr::new(server, 53), kind, timeout)
-                    .await
-                    .map_err(|e| format!("{e:#}")),
-            )
-        });
+        let query = resolve(domain, server, kind, timeout);
+        work.spawn(async move { Work::Resolved(row, query.await.map_err(|e| format!("{e:#}"))) });
     }
-    let mut addresses = BTreeMap::new();
-    while let Some(result) = queries.join_next().await {
-        if let Ok((row, resolution)) = result {
-            if let Ok(r) = &resolution {
-                addresses.insert(r.ip, ());
-            }
-            let _ = sender.send(Event::Resolved {
-                row,
-                result: resolution,
-            });
-        }
-    }
-    let mut probes = JoinSet::new();
-    for (ip, _) in addresses {
-        let sender = sender.clone();
-        let count = settings.samples;
+    let mut samples: BTreeMap<IpAddr, Vec<Result<f64, String>>> = BTreeMap::new();
+    let spawn_sample = |work: &mut JoinSet<Work>, ip, index| {
         let kind = settings.probe;
         let port = settings.port;
-        probes.spawn(async move {
-            for index in 0..count {
-                let result = probe::sample(ip, kind, port, timeout)
+        work.spawn(async move {
+            if index > 0 {
+                tokio::time::sleep(Duration::from_millis(180)).await;
+            }
+            Work::Sample(
+                ip,
+                probe::sample(ip, kind, port, timeout)
                     .await
-                    .map_err(|e| format!("{e:#}"));
+                    .map_err(|e| format!("{e:#}")),
+                index,
+            )
+        });
+    };
+    while let Some(result) = work.join_next().await {
+        match result {
+            Ok(Work::Resolved(row, result)) => {
+                let previous = result
+                    .as_ref()
+                    .ok()
+                    .map(|r| {
+                        if let std::collections::btree_map::Entry::Vacant(entry) =
+                            samples.entry(r.ip)
+                        {
+                            entry.insert(Vec::new());
+                            spawn_sample(&mut work, r.ip, 0);
+                        }
+                        samples[&r.ip].clone()
+                    })
+                    .unwrap_or_default();
+                if sender
+                    .send(Event::Resolved {
+                        row,
+                        result,
+                        samples: previous,
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            Ok(Work::Sample(ip, result, index)) => {
+                samples.get_mut(&ip).unwrap().push(result.clone());
                 if sender.send(Event::Sample { ip, result }).is_err() {
                     return;
                 }
-                if index + 1 < count {
-                    tokio::time::sleep(Duration::from_millis(180)).await;
+                if index + 1 < settings.samples {
+                    spawn_sample(&mut work, ip, index + 1);
                 }
             }
-        });
+            Err(_) => {}
+        }
     }
-    while probes.join_next().await.is_some() {}
+}
+
+fn sample_status(row: &ResultRow, count: u32) -> RowStatus {
+    if row.stats.samples.len() >= count as usize {
+        if row.stats.successes() == 0 {
+            RowStatus::Failed(row.stats.last_error().unwrap_or("所有测速均失败").into())
+        } else {
+            RowStatus::Complete
+        }
+    } else if row.stats.samples.is_empty() {
+        RowStatus::Waiting
+    } else {
+        RowStatus::Probing
+    }
 }
 
 pub fn apply_event(rows: &mut [ResultRow], event: &Event, count: u32) {
     match event {
-        Event::Resolved { row, result } => {
+        Event::Resolved {
+            row,
+            result,
+            samples,
+        } => {
             if let Some(row) = rows.get_mut(*row) {
                 match result {
                     Ok(r) => {
                         row.ip = Some(r.ip);
                         row.dns_ms = Some(r.elapsed_ms);
-                        row.status = RowStatus::Waiting;
+                        row.stats.samples = samples.clone();
+                        row.status = sample_status(row, count);
                     }
                     Err(e) => row.status = RowStatus::Failed(e.clone()),
                 }
@@ -98,15 +154,7 @@ pub fn apply_event(rows: &mut [ResultRow], event: &Event, count: u32) {
         Event::Sample { ip, result } => {
             for row in rows.iter_mut().filter(|r| r.ip == Some(*ip)) {
                 row.stats.samples.push(result.clone());
-                row.status = if row.stats.samples.len() >= count as usize {
-                    if row.stats.successes() == 0 {
-                        RowStatus::Failed(row.stats.last_error().unwrap_or("所有测速均失败").into())
-                    } else {
-                        RowStatus::Complete
-                    }
-                } else {
-                    RowStatus::Probing
-                };
+                row.status = sample_status(row, count);
             }
         }
         Event::Cancelled => {
@@ -129,6 +177,57 @@ pub fn apply_event(rows: &mut [ResultRow], event: &Event, count: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[tokio::test]
+    async fn probes_start_before_slow_dns_and_late_duplicate_gets_all_samples() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let mut settings = Settings {
+            samples: 2,
+            probe: ProbeKind::Tcp,
+            port: listener.local_addr().unwrap().port(),
+            ..Default::default()
+        };
+        settings.servers.truncate(2);
+        let slow = settings.servers[1].address;
+        let (tx, rx) = std::sync::mpsc::channel();
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            run_with_resolver(settings.clone(), &tx, move |_, server, _, _| async move {
+                if server == slow {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                }
+                Ok(dns::Resolution {
+                    ip: "127.0.0.1".parse().unwrap(),
+                    elapsed_ms: 1.,
+                })
+            }),
+        )
+        .await
+        .unwrap();
+        let events: Vec<_> = rx.try_iter().collect();
+        let first_sample = events
+            .iter()
+            .position(|event| matches!(event, Event::Sample { .. }))
+            .unwrap();
+        let late_dns = events
+            .iter()
+            .position(|event| matches!(event, Event::Resolved { row: 1, .. }))
+            .unwrap();
+        assert!(first_sample < late_dns);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, Event::Sample { .. }))
+                .count(),
+            2
+        );
+        let mut rows: Vec<_> = settings.servers.into_iter().map(ResultRow::new).collect();
+        for event in events {
+            apply_event(&mut rows, &event, 2);
+        }
+        assert!(rows.iter().all(|row| row.stats.samples.len() == 2
+            && row.stats.successes() == 2
+            && matches!(row.status, RowStatus::Complete)));
+    }
     #[tokio::test]
     async fn already_cancelled_run_returns_without_results() {
         let cancel = CancellationToken::new();

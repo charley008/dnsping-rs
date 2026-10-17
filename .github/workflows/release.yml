@@ -2,6 +2,7 @@ name: Release Windows
 
 # Branch pushes and pull requests do not trigger builds.
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v[0-9]*'
@@ -15,7 +16,7 @@ concurrency:
 
 jobs:
   windows:
-    if: github.event.deleted == false
+    if: github.event.deleted != true
     runs-on: windows-latest
     timeout-minutes: 60
     permissions:
@@ -32,19 +33,30 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install stable Rust and checks
+      - name: Install pinned Rust and checks
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
           if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed' }
-          rustup default stable
+          rustup default 1.99.1
           if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain selection failed' }
+
+      - name: Cache Rust dependencies and build outputs
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-rust-1.99.1-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}-${{ github.sha }}
+          restore-keys: |
+            windows-rust-1.99.1-${{ hashFiles('Cargo.lock', '.cargo/config.toml') }}-
 
       - name: Check release version
         run: |
           $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
           if ($LASTEXITCODE -ne 0) { throw 'Cargo metadata failed' }
           $version = ($metadata.packages | Where-Object name -eq 'dnsping').version
-          if ($env:GITHUB_REF_NAME -cne "v$version") {
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne "v$version") {
             throw "Tag $env:GITHUB_REF_NAME must match Cargo.toml version v$version"
           }
 
@@ -60,7 +72,18 @@ jobs:
       - name: Build portable Windows package
         run: ./scripts/package.ps1
 
+      - name: Save package for pre-release verification
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: DNSPing-preview
+          path: |
+            dist/DNSPing-windows-x64.zip
+            dist/SHA256SUMS.txt
+          retention-days: 7
+
       - name: Publish release assets
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

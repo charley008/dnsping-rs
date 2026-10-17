@@ -76,6 +76,8 @@ pub struct Dashboard {
     result_scroll: ScrollHandle,
     message: String,
     error: bool,
+    settings_notice: Option<String>,
+    show_servers: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -142,10 +144,10 @@ impl Dashboard {
             run_id: 0,
             server_scroll: ScrollHandle::new(),
             result_scroll: ScrollHandle::new(),
-            message: warning
-                .clone()
-                .unwrap_or_else(|| "准备就绪 · 输入域名，比较不同 DNS 的解析与连接质量".into()),
-            error: warning.is_some(),
+            message: "准备就绪 · 输入域名，比较不同 DNS 的解析与连接质量".into(),
+            error: false,
+            settings_notice: warning,
+            show_servers: false,
             _subscriptions: subscriptions,
         }
     }
@@ -189,10 +191,9 @@ impl Dashboard {
     }
 
     fn persist(&mut self) {
-        if let Err(e) = config::save(&self.settings) {
-            self.message = format!("设置保存失败：{e}");
-            self.error = true;
-        }
+        self.settings_notice = config::save(&self.settings)
+            .err()
+            .map(|e| format!("设置保存失败：{e:#}"));
     }
 
     fn start(&mut self, cx: &mut Context<Self>) {
@@ -396,7 +397,7 @@ impl Dashboard {
         cx.notify();
     }
 
-    fn sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn sidebar(&self, compact: bool, narrow: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = Palette::current(cx);
         let mut servers = div()
             .id("servers")
@@ -412,7 +413,7 @@ impl Dashboard {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .p_3()
+                    .p_2()
                     .rounded(px(10.))
                     .border_1()
                     .border_color(rgb(if server.enabled {
@@ -488,7 +489,8 @@ impl Dashboard {
             );
         }
         div()
-            .w(px(252.))
+            .w(px(if compact { 210. } else { 232. }))
+            .when(narrow, |el| el.w_full())
             .flex_none()
             .h_full()
             .bg(rgb(colors.sidebar))
@@ -496,8 +498,19 @@ impl Dashboard {
             .border_color(rgb(colors.border))
             .flex()
             .flex_col()
-            .p_5()
-            .gap_5()
+            .p_3()
+            .gap_3()
+            .when(narrow, |el| {
+                el.child(
+                    Button::new("close-servers")
+                        .small()
+                        .label("返回测试")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.show_servers = false;
+                            cx.notify();
+                        })),
+                )
+            })
             .child(
                 div()
                     .flex()
@@ -526,7 +539,7 @@ impl Dashboard {
                                     .font_weight(FontWeight::BOLD)
                                     .child("DNSPing"),
                             )
-                            .child(label("找到更快的连接")),
+                            .when(!compact, |el| el.child(label("找到更快的连接"))),
                     ),
             )
             .child(div().h(px(1.)).bg(rgb(colors.border)))
@@ -615,25 +628,27 @@ impl Dashboard {
                         }),
                     ),
             )
-            .child(
-                div()
-                    .p_3()
-                    .rounded(px(10.))
-                    .bg(rgb(colors.info_surface))
-                    .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .items_center()
-                            .text_color(rgb(colors.info_text))
-                            .child(icon(IconName::Info))
-                            .child("独立查询 · 真实测速"),
-                    )
-                    .child(label("每个 DNS 取首个 IP；相同 IP 自动合并测速。")),
-            )
+            .when(!compact, |el| {
+                el.child(
+                    div()
+                        .p_3()
+                        .rounded(px(10.))
+                        .bg(rgb(colors.info_surface))
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex()
+                                .gap_2()
+                                .items_center()
+                                .text_color(rgb(colors.info_text))
+                                .child(icon(IconName::Info))
+                                .child("独立查询 · 真实测速"),
+                        )
+                        .child(label("每个 DNS 取首个 IP；相同 IP 自动合并测速。")),
+                )
+            })
             .child(label(format!("WINDOWS  /  v{}", env!("CARGO_PKG_VERSION"))))
             .child(
                 Button::new("config-file")
@@ -655,28 +670,29 @@ impl Dashboard {
         let ipv4 = self.settings.query == QueryKind::Ipv4;
         let tcp = self.settings.probe == ProbeKind::Tcp;
         panel(colors)
-            .p_4()
+            .p_3()
             .flex_none()
             .flex()
             .flex_col()
-            .gap_3()
+            .gap_2()
             .child(
                 div()
                     .flex()
+                    .flex_wrap()
                     .items_center()
                     .gap_3()
                     .child(
-                        div().flex_1().min_w_0().child(
+                        div().flex_1().min_w(px(150.)).child(
                             Input::new(&self.domain)
-                                .large()
+                                .small()
                                 .disabled(self.running)
                                 .prefix(icon(IconName::Search)),
                         ),
                     )
                     .child(
                         Button::new("run")
-                            .large()
-                            .w(px(130.))
+                            .small()
+                            .w(px(112.))
                             .when(!self.running, |b| b.primary())
                             .when(self.running, |b| b.danger())
                             .icon(if self.running {
@@ -701,8 +717,9 @@ impl Dashboard {
             .child(
                 div()
                     .flex()
+                    .flex_wrap()
                     .items_end()
-                    .gap_4()
+                    .gap_3()
                     .child(
                         div()
                             .flex()
@@ -813,7 +830,7 @@ impl Dashboard {
             )
     }
 
-    fn recommendation(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn recommendation(&self, compact: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = Palette::current(cx);
         let best = self
             .completed
@@ -858,18 +875,20 @@ impl Dashboard {
             .flex_none()
             .items_center()
             .gap_3()
-            .child(
-                div()
-                    .size(px(30.))
-                    .flex_none()
-                    .rounded(px(9.))
-                    .bg(rgb(colors.winner))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_color(rgb(colors.accent))
-                    .child(icon(IconName::Star)),
-            )
+            .when(!compact, |el| {
+                el.child(
+                    div()
+                        .size(px(30.))
+                        .flex_none()
+                        .rounded(px(9.))
+                        .bg(rgb(colors.winner))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .text_color(rgb(colors.accent))
+                        .child(icon(IconName::Star)),
+                )
+            })
             .child(
                 div()
                     .flex_1()
@@ -899,13 +918,15 @@ impl Dashboard {
                                     .child(headline),
                             ),
                     )
-                    .child(
-                        div()
-                            .text_ellipsis()
-                            .text_size(px(11.))
-                            .text_color(rgb(colors.muted))
-                            .child(detail),
-                    ),
+                    .when(!compact, |el| {
+                        el.child(
+                            div()
+                                .text_ellipsis()
+                                .text_size(px(11.))
+                                .text_color(rgb(colors.muted))
+                                .child(detail),
+                        )
+                    }),
             );
         if let Some(row) = best {
             let ip = row.ip.unwrap().to_string();
@@ -1152,9 +1173,10 @@ impl Dashboard {
                     .child(label("选择左侧 DNS，输入域名，按 Enter 或点击开始测试。")),
             );
         }
-        panel(colors)
+        let table = panel(colors)
             .flex_1()
-            .min_h(px(180.))
+            .min_w(px(700.))
+            .h_full()
             .overflow_hidden()
             .flex()
             .flex_col()
@@ -1243,7 +1265,14 @@ impl Dashboard {
                     .min_h_0()
                     .child(body.h_full().track_scroll(&self.result_scroll))
                     .vertical_scrollbar(&self.result_scroll),
-            )
+            );
+        div()
+            .id("results-horizontal")
+            .flex_1()
+            .min_h(px(100.))
+            .min_w_0()
+            .overflow_x_scroll()
+            .child(table)
     }
 }
 
@@ -1256,8 +1285,11 @@ impl Drop for Dashboard {
 }
 
 impl Render for Dashboard {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = Palette::current(cx);
+        let viewport = window.viewport_size();
+        let compact = viewport.height < px(760.) || viewport.width < px(1100.);
+        let narrow = viewport.width < px(760.);
         let dns_done = self
             .rows
             .iter()
@@ -1270,39 +1302,163 @@ impl Render for Dashboard {
         } else {
             (dns_done + samples_done) as f32 / total as f32
         };
-        div().size_full().bg(rgb(colors.background)).text_color(rgb(colors.text)).font_family("Microsoft YaHei UI").text_size(px(13.))
-            .flex().flex_col()
-            .child(TitleBar::new().bg(rgb(colors.sidebar)).border_color(rgb(colors.border))
-                .child(div().flex().items_center().gap_2().text_size(px(11.)).text_color(rgb(colors.muted))
-                    .child(icon(IconName::Globe)).child("DNSPing").child(div().text_color(rgb(colors.subtle)).child("/")).child("网络连接实验室")))
-            .child(div().flex().flex_1().min_h_0().child(self.sidebar(cx))
-            .child(div().flex_1().min_w_0().h_full().flex().flex_col().p_4().gap_3()
-                .child(div().flex().items_center().justify_between()
-                    .child(div().flex().flex_col().gap_1()
-                        .child(div().text_size(px(22.)).font_weight(FontWeight::BOLD).child("优选你的 DNS"))
-                        .child(label("解析与连接质量对比 · 辅助选择 SmartDNS 上游")))
-                    .child(div().flex().items_center().gap_3()
-                        .child(Button::new("toggle-theme").small().ghost()
-                            .icon(if self.settings.dark_theme { IconName::Sun } else { IconName::Moon })
-                            .label(if self.settings.dark_theme { "浅色" } else { "深色" })
+        let main = div()
+            .id("main-content")
+            .flex_1()
+            .min_w_0()
+            .h_full()
+            .overflow_y_scroll()
+            .flex()
+            .flex_col()
+            .p_3()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .when(narrow, |el| {
+                                el.child(
+                                    Button::new("show-servers")
+                                        .small()
+                                        .label("DNS 列表")
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.show_servers = true;
+                                            cx.notify();
+                                        })),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .text_size(px(18.))
+                                    .font_weight(FontWeight::BOLD)
+                                    .child("优选 DNS"),
+                            ),
+                    )
+                    .child(
+                        Button::new("toggle-theme")
+                            .small()
+                            .ghost()
+                            .icon(if self.settings.dark_theme {
+                                IconName::Sun
+                            } else {
+                                IconName::Moon
+                            })
+                            .when(!narrow, |button| {
+                                button.label(if self.settings.dark_theme {
+                                    "浅色"
+                                } else {
+                                    "深色"
+                                })
+                            })
                             .tooltip("切换深色 / 浅色主题")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.settings.dark_theme = !this.settings.dark_theme;
                                 ui_theme::apply(this.settings.dark_theme, cx);
-                                this.persist(); window.refresh(); cx.notify();
-                            })))
-                        .child(div().flex().items_center().gap_2().px_3().py_2().rounded_full().bg(rgb(colors.accent_surface))
-                        .child(div().size(px(6.)).rounded_full().bg(rgb(colors.accent)))
-                        .child(div().text_color(rgb(colors.accent)).text_size(px(12.)).child(if self.running { "测试进行中" } else { "本机网络实测" })))))
-                .child(self.controls(cx))
-                .child(self.recommendation(cx))
-                .when(self.running, |el| el.child(div().h(px(3.)).rounded_full().bg(rgb(colors.border)).child(div().h_full().w(relative(progress.max(0.02))).rounded_full().bg(rgb(colors.accent)))))
-                .child(self.results(cx))
-                .child(div().flex().items_center().gap_2().text_size(px(12.)).text_color(rgb(if self.error { colors.error } else { colors.muted }))
-                    .child(icon(if self.error { IconName::TriangleAlert } else { IconName::Info }))
-                    .child(div().flex_1().min_w_0().child(self.message.clone())))
-                .child(div().text_size(px(11.)).text_color(rgb(colors.subtle)).child(if self.settings.probe == ProbeKind::Tcp {
+                                this.persist();
+                                window.refresh();
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(self.controls(cx))
+            .child(self.recommendation(compact, cx))
+            .when(self.running, |el| {
+                el.child(
+                    div()
+                        .flex_none()
+                        .h(px(3.))
+                        .rounded_full()
+                        .bg(rgb(colors.border))
+                        .child(
+                            div()
+                                .h_full()
+                                .w(relative(progress.max(0.02)))
+                                .rounded_full()
+                                .bg(rgb(colors.accent)),
+                        ),
+                )
+            })
+            .child(self.results(cx))
+            .when(self.settings_notice.is_some(), |el| {
+                el.child(
+                    div()
+                        .flex_none()
+                        .text_size(px(11.))
+                        .text_color(rgb(colors.error))
+                        .child(self.settings_notice.clone().unwrap_or_default()),
+                )
+            })
+            .child(
+                div()
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_size(px(11.))
+                    .text_color(rgb(if self.error {
+                        colors.error
+                    } else {
+                        colors.muted
+                    }))
+                    .child(icon(if self.error {
+                        IconName::TriangleAlert
+                    } else {
+                        IconName::Info
+                    }))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .text_ellipsis()
+                            .child(self.message.clone()),
+                    ),
+            )
+            .when(!compact, |el| {
+                el.child(div().flex_none().text_size(px(11.)).text_color(rgb(colors.subtle))
+                .child(if self.settings.probe == ProbeKind::Tcp {
                     "TCPing 测量端口建连耗时；推荐适用于本轮网络和端口，不代表业务响应速度。"
-                } else { "Ping 使用 ICMP；部分服务器禁用 ICMP，无应答不一定表示网站不可访问。" }))))
+                } else { "Ping 使用 ICMP；部分服务器禁用 ICMP，无应答不一定表示网站不可访问。" }))
+            });
+        div()
+            .size_full()
+            .bg(rgb(colors.background))
+            .text_color(rgb(colors.text))
+            .font_family("Microsoft YaHei UI")
+            .text_size(px(13.))
+            .flex()
+            .flex_col()
+            .child(
+                TitleBar::new()
+                    .bg(rgb(colors.sidebar))
+                    .border_color(rgb(colors.border))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .text_size(px(11.))
+                            .text_color(rgb(colors.muted))
+                            .child(icon(IconName::Globe))
+                            .child("DNSPing"),
+                    ),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_1()
+                    .min_h_0()
+                    .when(!narrow || self.show_servers, |el| {
+                        el.child(self.sidebar(compact, narrow, cx))
+                    })
+                    .when(!narrow || !self.show_servers, |el| el.child(main)),
+            )
     }
 }
