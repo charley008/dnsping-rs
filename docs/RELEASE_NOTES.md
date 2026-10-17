@@ -6,6 +6,6 @@ Windows x64 便携版，下载 `DNSPing-windows-x64.zip`，解压后运行 `DNSP
 - 复制推荐 DNS / IP、取消测试、导出 CSV。
 - 配置为程序同目录的 `settings.json`，可以关闭程序后用文本编辑器手动修改；首次使用会创建配置或迁移旧配置。
 
-升级时关闭程序，再用新版文件覆盖原目录；发行 ZIP 不包含实际 `settings.json`，会保留你的配置。`settings.example.json` 仅作格式参考。
+发行 ZIP 包含默认 `settings.json`。升级时关闭程序，保留原有 `settings.json`，仅替换程序及其他文件，以免覆盖你的配置。
 
-`DNSPing.exe` 是独立可执行文件；`DNSPing-source.zip` 是源码备份；`SHA256SUMS.txt` 用于校验 exe。
+ZIP 内仅包含 `DNSPing.exe`、`settings.json`、`LICENSE.txt` 和用于校验程序的 `SHA256SUMS.txt`。发布页单独提供的 `SHA256SUMS.txt` 用于校验 ZIP。

@@ -35,7 +35,7 @@ Windows 专用的 Rust + GPUI 桌面 DNS 对比测速工具，辅助选择 Smart
 
 可以关闭程序后手动编辑 JSON，再重启生效；格式参考 [settings.example.json](settings.example.json)。名称与地址分别为 `name`、`address`，`enabled` 控制是否参与测试；`query` 可选 `Ipv4` / `Ipv6`，`probe` 可选 `Tcp` / `Icmp`，`dark_theme` 为 `true` / `false`。DNS 条目的 `enabled`、`custom` 字段可省略，省略时均为 `true`。支持 UTF-8 BOM；无效配置会提示，恢复保存前会备份为 `settings.invalid-*.json`。
 
-程序目录需要可写。升级时关闭程序，用新版 ZIP 覆盖原目录即可；发行包只包含配置示例，不包含实际 `settings.json`，不会覆盖你的 DNS 配置。
+程序目录需要可写。发行包包含默认配置 `settings.json`。升级时关闭程序，保留原有 `settings.json`，仅替换程序及其他文件，以免覆盖你的 DNS 配置。
 
 ## 如何理解结果
 
@@ -62,7 +62,7 @@ cargo build --locked --release --bin dnsping
 
 `.cargo/config.toml` 静态链接 C 运行库，Release 程序隐藏控制台，图标资源已嵌入。产物位于 `target/release/dnsping.exe`。
 
-执行 `scripts/package.ps1` 可生成 `dist/DNSPing.exe`、使用说明、第三方依赖清单、校验文件和 ZIP 发行包。
+执行 `scripts/package.ps1` 可生成 `dist/DNSPing-windows-x64.zip` 与 ZIP 的 `dist/SHA256SUMS.txt` 校验文件。ZIP 内仅包含 `DNSPing.exe`、`settings.json`、`LICENSE.txt` 和用于校验程序的 `SHA256SUMS.txt`。
 
 ## 无界面诊断
 

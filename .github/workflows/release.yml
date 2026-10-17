@@ -66,11 +66,19 @@ jobs:
         run: |
           $tag = $env:GITHUB_REF_NAME
           $repo = $env:GITHUB_REPOSITORY
-          $assets = @('dist/DNSPing-windows-x64.zip', 'dist/DNSPing.exe', 'dist/SHA256SUMS.txt', 'dist/DNSPing-source.zip')
+          $assets = @('dist/DNSPing-windows-x64.zip', 'dist/SHA256SUMS.txt')
           gh release view $tag --repo $repo --json id 2>$null | Out-Null
           if ($LASTEXITCODE -eq 0) {
             gh release upload $tag @assets --repo $repo --clobber
             if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
+            $existingAssets = gh release view $tag --repo $repo --json assets --jq '.assets[].name'
+            if ($LASTEXITCODE -ne 0) { throw 'Release asset listing failed' }
+            foreach ($obsolete in @('DNSPing-source.zip', 'DNSPing.exe')) {
+              if ($existingAssets -contains $obsolete) {
+                gh release delete-asset $tag $obsolete --repo $repo --yes
+                if ($LASTEXITCODE -ne 0) { throw "Failed to remove obsolete asset $obsolete" }
+              }
+            }
           } else {
             gh release create $tag @assets --repo $repo --verify-tag --draft --title "DNSPing $tag" --notes-file docs/RELEASE_NOTES.md
             if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }

@@ -42,8 +42,8 @@
 - 直接运行 `dist/DNSPing.exe`，静态 C 运行库版本窗口正常显示，并再次完成用户示例域名的 4 DNS × 5 次 TCP 测试。
 - 将窗口缩小至约 1080 × 720：输入、开始 / 停止、推荐、底部说明可见；DNS 列表与结果表格可独立滚动，滚动后可查看最后一行。
 - PE 子系统为 `Windows GUI`，无控制台窗口。依赖检查确认没有 `VCRUNTIME140.dll` 依赖，只依赖 Windows 系统 DLL，包括 Direct3D 11 / DirectWrite / ICU。
-- 最新发布 exe 的大小及校验值以 `dist/DNSPing.exe` 与 `dist/SHA256SUMS.txt` 为准。
-- 发行包包含程序、中文使用说明、MIT 许可、第三方依赖清单及可获得的许可文本、SHA-256 文件。额外提供源码 ZIP，包含 Cargo.lock、构建配置与打包脚本。
+- 发布页的 `SHA256SUMS.txt` 校验 ZIP；ZIP 内的同名文件校验 `DNSPing.exe`。
+- 发行 ZIP 仅包含 `DNSPing.exe`、默认 `settings.json`、`LICENSE.txt` 和 `SHA256SUMS.txt`；发布附件仅提供 Windows ZIP 和 ZIP 校验文件。
 
 当前只在本机的 Windows 环境实测；未声明公网 IPv6 可达性或其他 Windows 设备上的兼容性已验证。
 
