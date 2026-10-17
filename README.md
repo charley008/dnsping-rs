@@ -2,7 +2,7 @@
 
 Windows DNS 对比测速工具，基于 Rust + GPUI，辅助选择 SmartDNS 上游。
 
-![DNSPing 界面](docs/preview.jpg)
+![DNSPing 界面](docs/preview.png)
 
 ## 使用
 
