@@ -22,7 +22,7 @@ Windows DNS 对比测速工具，基于 Rust + GPUI，辅助选择 SmartDNS 上�
 | 字节跳动 | 180.184.1.1 |
 | 114DNS | 114.114.114.114 |
 
-配置保存在程序同目录的 `settings.json`，可关闭程序后手动编辑，格式参考 [配置示例](settings.example.json)。**升级时仍建议保留原有 `settings.json`。** v0.1.2 起会为每个程序目录保存升级保护副本，恢复被发行包默认配置覆盖的个人设置；从更早版本首次升级时请先备份配置。
+配置保存在程序同目录的 `settings.json`，首次启动自动生成，可关闭程序后手动编辑。发行包仅附 [配置示例](settings.example.json)，覆盖解压升级不会替换已有的 `settings.json`。
 
 ## 构建
 

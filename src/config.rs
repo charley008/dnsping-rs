@@ -179,6 +179,13 @@ fn save_to(settings: &Settings, dir: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Only older release ZIPs shipped the live configuration with this marker.
+    fn legacy_packaged_defaults() -> String {
+        let mut json: serde_json::Value =
+            serde_json::from_str(include_str!("../settings.example.json")).unwrap();
+        json["packaged_defaults"] = true.into();
+        serde_json::to_string(&json).unwrap()
+    }
     #[test]
     fn packaged_defaults_restore_old_appdata_and_then_protect_in_place_upgrades() {
         let root = tempfile::tempdir().unwrap();
@@ -189,22 +196,14 @@ mod tests {
         custom.servers.remove(0);
         custom.domain = "my.example.com".into();
         save_to(&custom, &legacy).unwrap();
-        std::fs::write(
-            app.join("settings.json"),
-            include_str!("../settings.example.json"),
-        )
-        .unwrap();
+        std::fs::write(app.join("settings.json"), legacy_packaged_defaults()).unwrap();
         let (loaded, notice) = load_from(&app, &legacy);
         assert!(notice.unwrap().contains("迁移"));
         assert_eq!(loaded.domain, custom.domain);
         assert_eq!(loaded.servers.len(), 4);
         assert!(!is_packaged_default(&app.join("settings.json")));
         // Simulate extracting a new release over the existing portable directory.
-        std::fs::write(
-            app.join("settings.json"),
-            include_str!("../settings.example.json"),
-        )
-        .unwrap();
+        std::fs::write(app.join("settings.json"), legacy_packaged_defaults()).unwrap();
         let (restored, notice) = load_from(&app, &legacy);
         assert!(notice.unwrap().contains("升级保护"));
         assert_eq!(restored.domain, custom.domain);
@@ -223,15 +222,11 @@ mod tests {
             ..Default::default()
         };
         save_with_backup(&custom, &app, &legacy).unwrap();
-        let edited = include_str!("../settings.example.json")
-            .replace("account.microsoft.com", "edited.example.com");
+        let edited =
+            legacy_packaged_defaults().replace("account.microsoft.com", "edited.example.com");
         std::fs::write(app.join("settings.json"), edited).unwrap();
         assert_eq!(load_from(&app, &legacy).0.domain, "edited.example.com");
-        std::fs::write(
-            other.join("settings.json"),
-            include_str!("../settings.example.json"),
-        )
-        .unwrap();
+        std::fs::write(other.join("settings.json"), legacy_packaged_defaults()).unwrap();
         assert_eq!(load_from(&other, &legacy).0.domain, "account.microsoft.com");
     }
     #[test]
