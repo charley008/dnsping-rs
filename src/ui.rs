@@ -489,10 +489,12 @@ impl Dashboard {
             );
         }
         div()
+            .id("sidebar")
             .w(px(if compact { 210. } else { 232. }))
             .when(narrow, |el| el.w_full())
             .flex_none()
             .h_full()
+            .overflow_y_scroll()
             .bg(rgb(colors.sidebar))
             .border_r_1()
             .border_color(rgb(colors.border))
@@ -563,7 +565,7 @@ impl Dashboard {
                 div()
                     .relative()
                     .flex_1()
-                    .min_h_0()
+                    .min_h(px(96.))
                     .child(servers.h_full().track_scroll(&self.server_scroll))
                     .vertical_scrollbar(&self.server_scroll),
             )
