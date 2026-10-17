@@ -407,7 +407,6 @@ impl Dashboard {
             .flex_col()
             .gap_2();
         for (index, server) in self.settings.servers.iter().enumerate() {
-            let color = colors.providers[index.min(5)];
             servers = servers.child(
                 div()
                     .flex()
@@ -447,7 +446,7 @@ impl Dashboard {
                                 div()
                                     .text_size(px(13.))
                                     .text_ellipsis()
-                                    .text_color(rgb(color))
+                                    .text_color(rgb(colors.text))
                                     .child(server.name.clone()),
                             )
                             .child(

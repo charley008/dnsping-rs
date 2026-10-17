@@ -27,7 +27,6 @@ pub struct Palette {
     pub error_detail: u32,
     pub bar: u32,
     pub pending: u32,
-    pub providers: [u32; 6],
 }
 
 impl Palette {
@@ -61,7 +60,6 @@ impl Palette {
                 error_detail: 0xca8f92,
                 bar: 0x688fca,
                 pending: 0x8bb5ff,
-                providers: [0x70a7ff, 0xffad66, 0x71b7ff, 0xbb9aff, 0xf6bd70, 0x7fd4a5],
             }
         } else {
             Self {
@@ -88,7 +86,6 @@ impl Palette {
                 error_detail: 0x9d4653,
                 bar: 0x497bb8,
                 pending: 0x396bb0,
-                providers: [0x2c65ac, 0xa75517, 0x296da5, 0x7952ac, 0x936820, 0x26754f],
             }
         }
     }
