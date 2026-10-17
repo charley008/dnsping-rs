@@ -1,0 +1,27 @@
+[package]
+name = "dnsping"
+version = "0.1.0"
+edition = "2024"
+description = "Windows DNS comparison and network latency desktop tool"
+license = "MIT"
+
+[dependencies]
+anyhow = "1"
+gpui = { version = "=0.2.2", default-features = false, features = ["windows-manifest"] }
+gpui-component = "=0.5.1"
+gpui-component-assets = "=0.5.1"
+hickory-proto = "0.26"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+idna = "1"
+windows = { version = "0.61", features = ["Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_Foundation", "Win32_System_IO"] }
+
+[build-dependencies]
+winresource = "0.1"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+strip = "debuginfo"

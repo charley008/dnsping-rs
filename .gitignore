@@ -1,0 +1,15 @@
+/target/
+/dist/
+*.log
+
+# Local configuration, diagnostics, and editor files
+.env
+.env.*
+!.env.example
+*.tmp
+*.pdb
+/.vs/
+/.idea/
+Thumbs.db
+Desktop.ini
+.DS_Store

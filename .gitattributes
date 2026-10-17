@@ -1,0 +1,10 @@
+# Keep source diffs consistent across Windows and GitHub.
+* text=auto eol=lf
+*.ps1 text eol=crlf
+
+# Embedded assets and screenshots must not be normalized.
+*.ico binary
+*.jpg binary
+*.png binary
+*.zip binary
+*.exe binary
