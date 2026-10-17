@@ -77,7 +77,3 @@ cargo run --locked --bin dnsping-check -- www.example.com --icmp --ipv6
 支持 `--dns`、`--port`、`--samples`、`--timeout`、`--icmp`、`--ipv6`；输出 CSV 与最终推荐 IP。诊断入口不会写入图形界面配置。
 
 架构与实现步骤见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)，验证记录见 [docs/VALIDATION.md](docs/VALIDATION.md)。
-
-## 上传到 GitHub
-
-仓库只跟踪源码、锁定的依赖、文档和界面资源；`target/`、`dist/`、实际配置和日志已忽略。推送匹配 Cargo 版本的标签（例如 `v0.1.0`）会触发 Windows 编译、测试、打包并自动发布 GitHub Release；普通分支推送不触发编译。操作步骤见 [docs/GITHUB.md](docs/GITHUB.md)。
