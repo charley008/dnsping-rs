@@ -21,6 +21,7 @@ while ($queue.Count -gt 0) {
     }
 }
 $out = [System.Text.StringBuilder]::new()
+$overrides = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'license-overrides.json') -Raw | ConvertFrom-Json -AsHashtable
 [void]$out.AppendLine((Get-Content -LiteralPath LICENSE -Raw))
 [void]$out.AppendLine("`nTHIRD-PARTY NOTICES`n")
 foreach ($package in ($metadata.packages | Sort-Object name,version)) {
@@ -38,11 +39,37 @@ foreach ($package in ($metadata.packages | Sort-Object name,version)) {
         }
     }
     $files = @($files | Sort-Object FullName -Unique)
-    if ($files.Count -eq 0) { throw "Missing license text for $($package.name) $($package.version)" }
     [void]$out.AppendLine("`n===== $($package.name) $($package.version) [$($package.license)] =====")
+    if ($files.Count -eq 0) {
+        $key = "$($package.name)@$($package.version)"
+        if (-not $overrides.ContainsKey($key)) { throw "Missing license text for $key" }
+        foreach ($notice in $overrides[$key]) {
+            [void]$out.AppendLine("Source: $($notice.source)")
+            [void]$out.AppendLine($notice.text)
+        }
+    }
     foreach ($file in $files) {
         [void]$out.AppendLine("`n--- $($file.Name) ---")
         [void]$out.AppendLine((Get-Content -LiteralPath $file.FullName -Raw))
     }
+}
+foreach ($notice in $overrides['lucide-icons']) {
+    [void]$out.AppendLine("`n===== Lucide icons (bundled in gpui-component-assets) =====")
+    [void]$out.AppendLine("Source: $($notice.source)")
+    [void]$out.AppendLine($notice.text)
+}
+# The statically linked Rust standard library is outside Cargo's package graph.
+$sysroot = rustc --print sysroot
+if ($LASTEXITCODE -ne 0) { throw 'Rust sysroot lookup failed' }
+$rustDocs = Join-Path $sysroot 'share/doc/rust'
+$copyright = Join-Path $rustDocs 'COPYRIGHT-library.html'
+if (-not (Test-Path -LiteralPath $copyright)) { throw 'Rust standard library notices missing' }
+$html = Get-Content -LiteralPath $copyright -Raw
+[void]$out.AppendLine("`n===== Rust standard library =====")
+[void]$out.AppendLine([System.Net.WebUtility]::HtmlDecode([regex]::Replace($html, '<[^>]*>', '')))
+$licenseNames = [regex]::Matches($html, 'href="licenses/([A-Za-z0-9._-]+)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+foreach ($name in $licenseNames) {
+    [void]$out.AppendLine("`n--- Rust: $name ---")
+    [void]$out.AppendLine((Get-Content -LiteralPath (Join-Path $rustDocs "licenses/$name") -Raw))
 }
 $out.ToString() | Set-Content -LiteralPath dist/LICENSE.txt -Encoding utf8
