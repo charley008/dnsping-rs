@@ -471,21 +471,21 @@ impl Dashboard {
                                 this.open_server_editor(Some(index), window, cx)
                             })),
                     )
-                    .when(server.custom, |el| {
-                        el.child(
-                            Button::new(("delete", index))
-                                .ghost()
-                                .xsmall()
-                                .icon(IconName::Close)
-                                .tooltip("删除自定义 DNS")
-                                .disabled(self.running || self.adding)
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.settings.servers.remove(index);
-                                    this.persist();
-                                    cx.notify();
-                                })),
-                        )
-                    }),
+                    .child(
+                        Button::new(("delete", index))
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::Close)
+                            .tooltip(format!("删除 {} ({})", server.name, server.address))
+                            .disabled(self.running || self.adding)
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.settings.servers.remove(index);
+                                this.message = "DNS 服务商已删除".into();
+                                this.error = false;
+                                this.persist();
+                                cx.notify();
+                            })),
+                    ),
             );
         }
         div()
