@@ -686,15 +686,15 @@ impl Dashboard {
                     .child(
                         div().flex_1().min_w(px(150.)).child(
                             Input::new(&self.domain)
-                                .small()
+                                .large()
                                 .disabled(self.running)
                                 .prefix(icon(IconName::Search)),
                         ),
                     )
                     .child(
                         Button::new("run")
-                            .small()
-                            .w(px(112.))
+                            .large()
+                            .w(px(130.))
                             .when(!self.running, |b| b.primary())
                             .when(self.running, |b| b.danger())
                             .icon(if self.running {
