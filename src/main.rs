@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ui;
+mod ui_theme;
 
 use gpui::*;
 use gpui_component::Root;
@@ -18,7 +19,8 @@ fn main() {
         .with_assets(gpui_component_assets::Assets)
         .run(move |cx: &mut App| {
             gpui_component::init(cx);
-            ui::theme(cx);
+            let (settings, warning) = dnsping::config::load();
+            ui_theme::apply(settings.dark_theme, cx);
             cx.on_window_closed(|cx| {
                 if cx.windows().is_empty() {
                     cx.quit();
@@ -39,7 +41,7 @@ fn main() {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     window_min_size: Some(size(px(1080.), px(720.))),
                     titlebar: Some(TitlebarOptions {
-                        title: Some("DNSPing · 发现更快的 IP".into()),
+                        title: Some("DNSPing · DNS 优选".into()),
                         appears_transparent: true,
                         ..Default::default()
                     }),
@@ -47,7 +49,8 @@ fn main() {
                     ..Default::default()
                 },
                 move |window, cx| {
-                    let view = cx.new(|cx| ui::Dashboard::new(runtime, window, cx));
+                    let view =
+                        cx.new(|cx| ui::Dashboard::new(runtime, settings, warning, window, cx));
                     cx.new(|cx| Root::new(view, window, cx))
                 },
             )

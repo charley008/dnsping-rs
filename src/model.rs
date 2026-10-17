@@ -20,8 +20,14 @@ pub enum ProbeKind {
 pub struct DnsServer {
     pub name: String,
     pub address: IpAddr,
+    #[serde(default = "default_true")]
     pub enabled: bool,
+    #[serde(default = "default_true")]
     pub custom: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -33,6 +39,7 @@ pub struct Settings {
     pub port: u16,
     pub samples: u32,
     pub timeout_ms: u64,
+    pub dark_theme: bool,
     pub servers: Vec<DnsServer>,
 }
 
@@ -61,12 +68,54 @@ impl Default for Settings {
             port: 80,
             samples: 5,
             timeout_ms: 2000,
+            dark_theme: true,
             servers,
         }
     }
 }
 
 impl Settings {
+    /// Create or edit a provider without replacing its selection or built-in identity.
+    pub fn save_server(&mut self, index: Option<usize>, name: &str, address: &str) -> Result<()> {
+        let name = name.trim();
+        if name.is_empty() || name.chars().count() > 24 {
+            bail!("服务商名称需要 1–24 个字符");
+        }
+        let address: IpAddr = address
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("请输入有效的 DNS IP 地址"))?;
+        if address.is_unspecified() || address.is_multicast() {
+            bail!("不能使用未指定地址或组播地址");
+        }
+        if index.is_some_and(|i| i >= self.servers.len()) {
+            bail!("要编辑的 DNS 已不存在，请重新选择");
+        }
+        if self
+            .servers
+            .iter()
+            .enumerate()
+            .any(|(i, s)| Some(i) != index && s.address == address)
+        {
+            bail!("这个 DNS 地址已经在列表中");
+        }
+        if let Some(index) = index {
+            self.servers[index].name = name.into();
+            self.servers[index].address = address;
+        } else {
+            if self.servers.len() >= 32 {
+                bail!("最多支持 32 个 DNS 服务器");
+            }
+            self.servers.push(DnsServer {
+                name: name.into(),
+                address,
+                enabled: true,
+                custom: true,
+            });
+        }
+        Ok(())
+    }
+
     pub fn validate(&self) -> Result<String> {
         let domain = normalize_domain(&self.domain)?;
         if self.port == 0 && self.probe == ProbeKind::Tcp {
@@ -278,6 +327,86 @@ pub fn csv_report(settings: &Settings, rows: &[ResultRow]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edit_builtin_and_custom_preserves_selection_and_identity() {
+        let mut settings = Settings::default();
+        settings.servers[0].enabled = false;
+        settings
+            .save_server(Some(0), "运营商备用", "202.103.224.69")
+            .unwrap();
+        assert_eq!(settings.servers.len(), 6);
+        assert!(!settings.servers[0].enabled);
+        assert!(!settings.servers[0].custom);
+        assert_eq!(settings.servers[0].address.to_string(), "202.103.224.69");
+        // Keeping one's own IP is valid when only changing the name.
+        settings
+            .save_server(Some(0), "本地 DNS", "202.103.224.69")
+            .unwrap();
+        settings.save_server(None, "自定义", "8.8.4.4").unwrap();
+        settings.servers[6].enabled = false;
+        settings
+            .save_server(Some(6), "IPv6 DNS", "2606:4700:4700::1111")
+            .unwrap();
+        assert_eq!(settings.servers.len(), 7);
+        assert!(settings.servers[6].custom);
+        assert!(!settings.servers[6].enabled);
+        assert!(settings.servers[6].address.is_ipv6());
+    }
+
+    #[test]
+    fn invalid_edits_do_not_change_any_provider() {
+        let mut settings = Settings::default();
+        let before = serde_json::to_value(&settings).unwrap();
+        for (index, name, address) in [
+            (Some(0), "重复", "223.5.5.5"),
+            (Some(0), "", "8.8.4.4"),
+            (Some(0), "错误", "https://1.1.1.1"),
+            (Some(0), "错误", "::"),
+            (Some(99), "不存在", "8.8.4.4"),
+        ] {
+            assert!(settings.save_server(index, name, address).is_err());
+            assert_eq!(serde_json::to_value(&settings).unwrap(), before);
+        }
+    }
+
+    #[test]
+    fn full_provider_list_still_allows_edits() {
+        let mut settings = Settings::default();
+        while settings.servers.len() < 32 {
+            let n = settings.servers.len();
+            settings
+                .save_server(None, &format!("测试 {n}"), &format!("192.0.2.{n}"))
+                .unwrap();
+        }
+        settings
+            .save_server(Some(0), "编辑已有服务商", "8.8.4.4")
+            .unwrap();
+        assert!(
+            settings
+                .save_server(None, "超出上限", "192.0.2.100")
+                .is_err()
+        );
+        assert_eq!(settings.servers.len(), 32);
+    }
+
+    #[test]
+    fn pre_theme_config_keeps_existing_provider_edits() {
+        let mut settings = Settings {
+            domain: "example.com".into(),
+            ..Default::default()
+        };
+        settings
+            .save_server(Some(0), "本地 DNS", "202.103.224.69")
+            .unwrap();
+        let mut json = serde_json::to_value(&settings).unwrap();
+        json.as_object_mut().unwrap().remove("dark_theme");
+        let loaded: Settings = serde_json::from_value(json).unwrap();
+        assert!(loaded.dark_theme);
+        assert_eq!(loaded.domain, "example.com");
+        assert_eq!(loaded.servers[0].name, "本地 DNS");
+        assert_eq!(loaded.servers[0].address.to_string(), "202.103.224.69");
+    }
     #[test]
     fn domain_validation() {
         assert_eq!(

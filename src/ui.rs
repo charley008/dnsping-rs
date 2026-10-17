@@ -1,3 +1,4 @@
+use crate::ui_theme::{self, Palette};
 use dnsping::{
     config,
     engine::{self, Event},
@@ -12,7 +13,6 @@ use gpui_component::{
     *,
 };
 use std::{
-    net::IpAddr,
     sync::{
         Arc,
         mpsc::{self, Receiver},
@@ -21,24 +21,26 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
-const BG: u32 = 0x0b111b;
-const PANEL: u32 = 0x111b29;
-const BORDER: u32 = 0x243246;
-const TEXT: u32 = 0xe8eef7;
-const MUTED: u32 = 0x8b9bb0;
-const ACCENT: u32 = 0x5ce0c4;
+#[derive(IntoElement)]
+struct Caption(SharedString);
 
-fn label(text: impl Into<SharedString>) -> Div {
-    div()
-        .text_size(px(12.))
-        .text_color(rgb(MUTED))
-        .child(text.into())
+impl RenderOnce for Caption {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        div()
+            .text_size(px(12.))
+            .text_color(rgb(Palette::current(cx).muted))
+            .child(self.0)
+    }
 }
-fn panel() -> Div {
+
+fn label(text: impl Into<SharedString>) -> Caption {
+    Caption(text.into())
+}
+fn panel(colors: Palette) -> Div {
     div()
-        .bg(rgb(PANEL))
+        .bg(rgb(colors.surface))
         .border_1()
-        .border_color(rgb(BORDER))
+        .border_color(rgb(colors.border))
         .rounded(px(14.))
 }
 fn icon(name: IconName) -> Icon {
@@ -48,30 +50,6 @@ fn number(value: Option<f64>) -> String {
     value
         .map(|v| format!("{v:.1}"))
         .unwrap_or_else(|| "—".into())
-}
-
-pub fn theme(cx: &mut App) {
-    Theme::change(ThemeMode::Dark, None, cx);
-    let theme = Theme::global_mut(cx);
-    theme.font_family = "Microsoft YaHei UI".into();
-    theme.font_size = px(14.);
-    theme.mono_font_family = "Consolas".into();
-    theme.radius = px(8.);
-    theme.background = rgb(BG).into();
-    theme.foreground = rgb(TEXT).into();
-    theme.primary = rgb(ACCENT).into();
-    theme.primary_hover = rgb(0x7aead3).into();
-    theme.primary_active = rgb(0x35c7aa).into();
-    theme.primary_foreground = rgb(0x08251f).into();
-    theme.secondary = rgb(0x1a283a).into();
-    theme.secondary_hover = rgb(0x26384e).into();
-    theme.secondary_foreground = rgb(TEXT).into();
-    theme.border = rgb(BORDER).into();
-    theme.input = rgb(BORDER).into();
-    theme.muted = rgb(0x182435).into();
-    theme.muted_foreground = rgb(MUTED).into();
-    theme.caret = rgb(ACCENT).into();
-    theme.ring = rgb(ACCENT).into();
 }
 
 pub struct Dashboard {
@@ -84,6 +62,7 @@ pub struct Dashboard {
     custom_name: Entity<InputState>,
     custom_ip: Entity<InputState>,
     adding: bool,
+    editing_server: Option<usize>,
     rows: Vec<ResultRow>,
     runtime: Arc<tokio::runtime::Runtime>,
     receiver: Option<Receiver<Event>>,
@@ -103,10 +82,11 @@ pub struct Dashboard {
 impl Dashboard {
     pub fn new(
         runtime: Arc<tokio::runtime::Runtime>,
+        settings: Settings,
+        warning: Option<String>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let (settings, warning) = config::load();
         let domain = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("输入域名，例如 www.example.com")
@@ -133,6 +113,13 @@ impl Dashboard {
             }));
         }
         subscriptions.push(cx.on_release(|this, cx| this.persist_inputs(cx)));
+        subscriptions.push(
+            cx.subscribe_in(&custom_ip, window, |this, _, event, window, cx| {
+                if matches!(event, InputEvent::PressEnter { .. }) && this.adding && !this.running {
+                    this.save_server(window, cx);
+                }
+            }),
+        );
         Self {
             settings,
             snapshot: None,
@@ -143,6 +130,7 @@ impl Dashboard {
             custom_name,
             custom_ip,
             adding: false,
+            editing_server: None,
             rows: vec![],
             runtime,
             receiver: None,
@@ -319,38 +307,57 @@ impl Dashboard {
         cx.notify();
     }
 
-    fn add_server(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let name = self.custom_name.read(cx).value().trim().to_owned();
-        let ip = self.custom_ip.read(cx).value().trim().parse::<IpAddr>();
-        let error = match ip {
-            _ if self.settings.servers.len() >= 32 => Some("最多支持 32 个 DNS 服务器"),
-            _ if name.is_empty() || name.chars().count() > 24 => Some("服务商名称需要 1–24 个字符"),
-            Err(_) => Some("请输入有效的 DNS IP 地址"),
-            Ok(ip) if ip.is_unspecified() || ip.is_multicast() => {
-                Some("不能使用未指定地址或组播地址")
-            }
-            Ok(ip) if self.settings.servers.iter().any(|s| s.address == ip) => {
-                Some("这个 DNS 地址已经在列表中")
-            }
-            Ok(ip) => {
-                self.settings.servers.push(DnsServer {
-                    name,
-                    address: ip,
-                    enabled: true,
-                    custom: true,
-                });
+    fn open_server_editor(
+        &mut self,
+        index: Option<usize>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.running {
+            return;
+        }
+        let (name, address) = index
+            .and_then(|i| self.settings.servers.get(i))
+            .map(|s| (s.name.clone(), s.address.to_string()))
+            .unwrap_or_default();
+        self.editing_server = index;
+        self.adding = true;
+        self.custom_name
+            .update(cx, |state, cx| state.set_value(name, window, cx));
+        self.custom_ip
+            .update(cx, |state, cx| state.set_value(address, window, cx));
+        cx.notify();
+    }
+
+    fn save_server(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.running || !self.adding {
+            return;
+        }
+        let name = self.custom_name.read(cx).value();
+        let address = self.custom_ip.read(cx).value();
+        match self
+            .settings
+            .save_server(self.editing_server, &name, &address)
+        {
+            Ok(()) => {
+                self.message = if self.editing_server.is_some() {
+                    "DNS 服务商已更新，下次测试使用新设置".into()
+                } else {
+                    "已添加 DNS 服务商".into()
+                };
+                self.error = false;
                 self.adding = false;
+                self.editing_server = None;
                 self.custom_name
                     .update(cx, |s, cx| s.set_value("", window, cx));
                 self.custom_ip
                     .update(cx, |s, cx| s.set_value("", window, cx));
                 self.persist();
-                None
             }
-        };
-        if let Some(error) = error {
-            self.message = error.into();
-            self.error = true;
+            Err(error) => {
+                self.message = error.to_string();
+                self.error = true;
+            }
         }
         cx.notify();
     }
@@ -390,6 +397,7 @@ impl Dashboard {
     }
 
     fn sidebar(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = Palette::current(cx);
         let mut servers = div()
             .id("servers")
             .flex_1()
@@ -399,17 +407,25 @@ impl Dashboard {
             .flex_col()
             .gap_2();
         for (index, server) in self.settings.servers.iter().enumerate() {
-            let color = [0x70a7ff, 0xffad66, 0x71b7ff, 0xbb9aff, 0xf6bd70, 0x7fd4a5][index.min(5)];
+            let color = colors.providers[index.min(5)];
             servers = servers.child(
                 div()
                     .flex()
                     .items_center()
-                    .gap_3()
+                    .gap_2()
                     .p_3()
                     .rounded(px(10.))
                     .border_1()
-                    .border_color(rgb(if server.enabled { BORDER } else { 0x172334 }))
-                    .bg(rgb(if server.enabled { 0x172334 } else { 0x101a28 }))
+                    .border_color(rgb(if server.enabled {
+                        colors.border
+                    } else {
+                        colors.selected
+                    }))
+                    .bg(rgb(if server.enabled {
+                        colors.selected
+                    } else {
+                        colors.unselected
+                    }))
                     .child(
                         Checkbox::new(("dns", index))
                             .checked(server.enabled)
@@ -430,6 +446,7 @@ impl Dashboard {
                             .child(
                                 div()
                                     .text_size(px(13.))
+                                    .text_ellipsis()
                                     .text_color(rgb(color))
                                     .child(server.name.clone()),
                             )
@@ -437,9 +454,22 @@ impl Dashboard {
                                 div()
                                     .font_family("Consolas")
                                     .text_size(px(12.))
-                                    .text_color(rgb(MUTED))
+                                    .text_ellipsis()
+                                    .text_color(rgb(colors.muted))
                                     .child(server.address.to_string()),
                             ),
+                    )
+                    .child(
+                        Button::new(("edit-dns", index))
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::Settings2)
+                            .label("编辑")
+                            .tooltip(format!("编辑 {} ({})", server.name, server.address))
+                            .disabled(self.running)
+                            .on_click(cx.listener(move |this, _, window, cx| {
+                                this.open_server_editor(Some(index), window, cx)
+                            })),
                     )
                     .when(server.custom, |el| {
                         el.child(
@@ -448,7 +478,7 @@ impl Dashboard {
                                 .xsmall()
                                 .icon(IconName::Close)
                                 .tooltip("删除自定义 DNS")
-                                .disabled(self.running)
+                                .disabled(self.running || self.adding)
                                 .on_click(cx.listener(move |this, _, _, cx| {
                                     this.settings.servers.remove(index);
                                     this.persist();
@@ -462,9 +492,9 @@ impl Dashboard {
             .w(px(252.))
             .flex_none()
             .h_full()
-            .bg(rgb(0x0e1724))
+            .bg(rgb(colors.sidebar))
             .border_r_1()
-            .border_color(rgb(BORDER))
+            .border_color(rgb(colors.border))
             .flex()
             .flex_col()
             .p_5()
@@ -479,11 +509,11 @@ impl Dashboard {
                         div()
                             .size(px(40.))
                             .rounded(px(12.))
-                            .bg(rgb(0x173a37))
+                            .bg(rgb(colors.winner))
                             .flex()
                             .items_center()
                             .justify_center()
-                            .text_color(rgb(ACCENT))
+                            .text_color(rgb(colors.accent))
                             .child(icon(IconName::Globe)),
                     )
                     .child(
@@ -500,7 +530,7 @@ impl Dashboard {
                             .child(label("找到更快的连接")),
                     ),
             )
-            .child(div().h(px(1.)).bg(rgb(BORDER)))
+            .child(div().h(px(1.)).bg(rgb(colors.border)))
             .child(
                 div()
                     .flex()
@@ -527,13 +557,23 @@ impl Dashboard {
             )
             .when(self.adding, |el| {
                 el.child(
-                    panel()
+                    panel(colors)
                         .p_3()
                         .flex()
                         .flex_col()
                         .gap_2()
-                        .child(Input::new(&self.custom_name).small())
-                        .child(Input::new(&self.custom_ip).small())
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(if self.editing_server.is_some() {
+                                    "编辑 DNS 服务商"
+                                } else {
+                                    "添加 DNS 服务商"
+                                }),
+                        )
+                        .child(Input::new(&self.custom_name).small().disabled(self.running))
+                        .child(Input::new(&self.custom_ip).small().disabled(self.running))
                         .child(
                             div()
                                 .flex()
@@ -542,8 +582,13 @@ impl Dashboard {
                                     Button::new("save-dns")
                                         .primary()
                                         .small()
-                                        .label("添加")
-                                        .on_click(cx.listener(Self::on_add)),
+                                        .label(if self.editing_server.is_some() {
+                                            "保存修改"
+                                        } else {
+                                            "添加"
+                                        })
+                                        .disabled(self.running)
+                                        .on_click(cx.listener(Self::on_save_server)),
                                 )
                                 .child(
                                     Button::new("cancel-dns")
@@ -552,6 +597,7 @@ impl Dashboard {
                                         .label("取消")
                                         .on_click(cx.listener(|this, _, _, cx| {
                                             this.adding = false;
+                                            this.editing_server = None;
                                             cx.notify();
                                         })),
                                 ),
@@ -564,16 +610,17 @@ impl Dashboard {
                     .label("添加自定义 DNS")
                     .w_full()
                     .disabled(self.running || self.adding)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.adding = true;
-                        cx.notify();
-                    })),
+                    .on_click(
+                        cx.listener(|this, _, window, cx| {
+                            this.open_server_editor(None, window, cx)
+                        }),
+                    ),
             )
             .child(
                 div()
                     .p_3()
                     .rounded(px(10.))
-                    .bg(rgb(0x142532))
+                    .bg(rgb(colors.info_surface))
                     .flex()
                     .flex_col()
                     .gap_2()
@@ -582,27 +629,38 @@ impl Dashboard {
                             .flex()
                             .gap_2()
                             .items_center()
-                            .text_color(rgb(0x8dc7e9))
+                            .text_color(rgb(colors.info_text))
                             .child(icon(IconName::Info))
                             .child("独立查询 · 真实测速"),
                     )
                     .child(label("每个 DNS 取首个 IP；相同 IP 自动合并测速。")),
             )
-            .child(label("WINDOWS  /  v0.1.0"))
+            .child(label(format!("WINDOWS  /  v{}", env!("CARGO_PKG_VERSION"))))
+            .child(
+                Button::new("config-file")
+                    .ghost()
+                    .small()
+                    .icon(IconName::Folder)
+                    .label("配置文件")
+                    .tooltip(config::path().display().to_string())
+                    .on_click(|_, _, cx| cx.reveal_path(&config::path())),
+            )
     }
 
-    fn on_add(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
-        self.add_server(window, cx);
+    fn on_save_server(&mut self, _: &ClickEvent, window: &mut Window, cx: &mut Context<Self>) {
+        self.save_server(window, cx);
     }
 
     fn controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = Palette::current(cx);
         let ipv4 = self.settings.query == QueryKind::Ipv4;
         let tcp = self.settings.probe == ProbeKind::Tcp;
-        panel()
-            .p_5()
+        panel(colors)
+            .p_4()
+            .flex_none()
             .flex()
             .flex_col()
-            .gap_4()
+            .gap_3()
             .child(
                 div()
                     .flex()
@@ -757,40 +815,60 @@ impl Dashboard {
     }
 
     fn recommendation(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = Palette::current(cx);
         let best = self
             .completed
             .then(|| best_row(&self.rows))
             .flatten()
             .map(|i| &self.rows[i]);
         let title = if best.is_some() {
-            "本轮最佳 IP"
+            "本轮推荐 DNS"
         } else if self.running {
-            "正在寻找更好的连接"
-        } else if self.completed {
-            "本轮没有可用的 IP"
+            "测试进行中"
         } else {
-            "让每一次连接，都有更好的起点"
+            "本轮推荐"
         };
+        let headline = best
+            .map(|r| format!("{} · {}", r.server.name, r.server.address))
+            .unwrap_or_else(|| {
+                if self.running {
+                    "正在比较 DNS 与连接质量…".into()
+                } else if self.completed {
+                    "本轮没有可用结果".into()
+                } else {
+                    "选择 DNS，开始对比测试".into()
+                }
+            });
+        let detail = best
+            .map(|r| format!("首个 IP：{} · 优先成功率，再比较平均延迟", r.ip.unwrap()))
+            .unwrap_or_else(|| {
+                if self.completed {
+                    "请检查网络、目标端口，或切换测速方式。".into()
+                } else {
+                    "对比解析速度与返回 IP 的连接质量，辅助选择 SmartDNS 上游。".into()
+                }
+            });
         let mut card = div()
-            .rounded(px(14.))
+            .rounded(px(12.))
             .border_1()
-            .border_color(rgb(0x2a514c))
-            .bg(rgb(0x112a2b))
-            .p_5()
+            .border_color(rgb(colors.accent_border))
+            .bg(rgb(colors.accent_surface))
+            .px_4()
+            .py(px(10.))
             .flex()
+            .flex_none()
             .items_center()
-            .gap_5()
-            .min_h(px(128.))
+            .gap_3()
             .child(
                 div()
-                    .size(px(44.))
+                    .size(px(30.))
                     .flex_none()
-                    .rounded(px(13.))
-                    .bg(rgb(0x1b403b))
+                    .rounded(px(9.))
+                    .bg(rgb(colors.winner))
                     .flex()
                     .items_center()
                     .justify_center()
-                    .text_color(rgb(ACCENT))
+                    .text_color(rgb(colors.accent))
                     .child(icon(IconName::Star)),
             )
             .child(
@@ -799,79 +877,89 @@ impl Dashboard {
                     .min_w_0()
                     .flex()
                     .flex_col()
-                    .gap_2()
+                    .gap(px(3.))
                     .child(
                         div()
-                            .text_size(px(12.))
-                            .text_color(rgb(ACCENT))
-                            .child(title),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(
-                                if best.is_some_and(|r| r.ip.is_some_and(|ip| ip.is_ipv6())) {
-                                    20.
-                                } else if best.is_some() {
-                                    29.
-                                } else {
-                                    21.
-                                },
-                            ))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .when(best.is_some(), |el| el.font_family("Consolas"))
+                            .flex()
+                            .items_center()
+                            .gap_3()
                             .child(
-                                best.and_then(|r| r.ip)
-                                    .map(|ip| ip.to_string())
-                                    .unwrap_or_else(|| {
-                                        if self.running {
-                                            "解析与测速进行中…".into()
-                                        } else if self.completed {
-                                            "请检查网络或更换测试端口".into()
-                                        } else {
-                                            "比较 DNS，发现更快的 IP".into()
-                                        }
-                                    }),
+                                div()
+                                    .flex_none()
+                                    .text_size(px(11.))
+                                    .text_color(rgb(colors.accent))
+                                    .child(title),
+                            )
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_ellipsis()
+                                    .text_size(px(15.))
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(headline),
                             ),
                     )
-                    .child(label(
-                        best.map(|r| {
-                            format!("来自 {} · 优先成功率，再比较平均延迟", r.server.name)
-                        })
-                        .unwrap_or_else(|| "同一域名，不同 DNS，可能通向不同的网络路径。".into()),
-                    )),
+                    .child(
+                        div()
+                            .text_ellipsis()
+                            .text_size(px(11.))
+                            .text_color(rgb(colors.muted))
+                            .child(detail),
+                    ),
             );
         if let Some(row) = best {
             let ip = row.ip.unwrap().to_string();
-            card = card.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .items_end()
-                    .child(
-                        div()
-                            .text_size(px(25.))
-                            .font_family("Consolas")
-                            .text_color(rgb(ACCENT))
-                            .child(format!("{} ms", number(row.stats.average()))),
-                    )
-                    .child(label("平均连接延迟"))
-                    .child(
-                        Button::new("copy-best")
-                            .small()
-                            .ghost()
-                            .icon(IconName::Copy)
-                            .label("复制 IP")
-                            .on_click(
-                                cx.listener(move |this, _, _, cx| this.copy_ip(ip.clone(), cx)),
-                            ),
-                    ),
-            );
+            let dns = row.server.address.to_string();
+            card = card
+                .child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .flex_col()
+                        .items_end()
+                        .child(
+                            div()
+                                .text_size(px(20.))
+                                .font_family("Consolas")
+                                .text_color(rgb(colors.accent))
+                                .child(format!("{} ms", number(row.stats.average()))),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(10.))
+                                .text_color(rgb(colors.muted))
+                                .child("平均连接延迟"),
+                        ),
+                )
+                .child(
+                    Button::new("copy-best-dns")
+                        .small()
+                        .ghost()
+                        .icon(IconName::Copy)
+                        .label("复制 DNS")
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(dns.clone()));
+                            this.message = format!("已复制 DNS：{dns}");
+                            this.error = false;
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new("copy-best")
+                        .small()
+                        .ghost()
+                        .icon(IconName::Copy)
+                        .label("IP")
+                        .tooltip("复制推荐 DNS 返回的 IP")
+                        .on_click(cx.listener(move |this, _, _, cx| this.copy_ip(ip.clone(), cx))),
+                );
         }
         card
     }
 
     fn results(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = Palette::current(cx);
         let best = if self.completed {
             best_row(&self.rows)
         } else {
@@ -893,39 +981,47 @@ impl Dashboard {
             let row = &self.rows[index];
             let winner = best == Some(index);
             let (status, status_color) = match &row.status {
-                RowStatus::Resolving => ("解析中".to_owned(), 0x8bb5ff),
-                RowStatus::Waiting => ("等待测速".into(), MUTED),
+                RowStatus::Resolving => ("解析中".to_owned(), colors.pending),
+                RowStatus::Waiting => ("等待测速".into(), colors.muted),
                 RowStatus::Probing => (
                     format!("测速 {}/{}", row.stats.samples.len(), snapshot.samples),
-                    0x8bb5ff,
+                    colors.pending,
                 ),
-                RowStatus::Complete => (if winner { "最佳" } else { "已完成" }.into(), ACCENT),
-                RowStatus::Failed(_) => ("失败".into(), 0xf59898),
-                RowStatus::Cancelled => ("已停止".into(), MUTED),
+                RowStatus::Complete => {
+                    (if winner { "最佳" } else { "已完成" }.into(), colors.accent)
+                }
+                RowStatus::Failed(_) => ("失败".into(), colors.error),
+                RowStatus::Cancelled => ("已停止".into(), colors.muted),
             };
             let ip = row.ip.map(|ip| ip.to_string());
             let mut content = div()
+                .flex_none()
                 .flex()
                 .flex_col()
                 .border_b_1()
-                .border_color(rgb(0x1c2a3c))
-                .bg(rgb(if winner { 0x142e2e } else { PANEL }))
+                .border_color(rgb(colors.divider))
+                .bg(rgb(if winner {
+                    colors.winner
+                } else {
+                    colors.surface
+                }))
                 .px_4()
-                .py_3()
-                .gap_2()
+                .py(px(5.))
+                .gap(px(2.))
                 .child(
                     div()
                         .flex()
                         .items_center()
                         .gap_2()
-                        .min_h(px(36.))
+                        .min_h(px(30.))
                         .child(
                             div()
                                 .w(px(116.))
                                 .flex_none()
                                 .flex()
                                 .flex_col()
-                                .gap_1()
+                                .line_height(px(15.))
+                                .gap(px(1.))
                                 .child(row.server.name.clone())
                                 .child(label(row.server.address.to_string())),
                         )
@@ -950,7 +1046,7 @@ impl Dashboard {
                                 .w(px(84.))
                                 .flex_none()
                                 .font_family("Consolas")
-                                .text_color(rgb(if winner { ACCENT } else { TEXT }))
+                                .text_color(rgb(if winner { colors.accent } else { colors.text }))
                                 .child(number(row.stats.average())),
                         )
                         .child(div().w(px(64.)).flex_none().font_family("Consolas").child(
@@ -986,7 +1082,7 @@ impl Dashboard {
                 content = content.child(
                     div()
                         .text_size(px(11.))
-                        .text_color(rgb(0xca8f92))
+                        .text_color(rgb(colors.error_detail))
                         .child(error.clone()),
                 );
             } else if !row.stats.samples.is_empty() {
@@ -1003,19 +1099,19 @@ impl Dashboard {
                         .items_center()
                         .gap_2()
                         .pl(px(124.))
-                        .child(div().flex().gap_1().items_end().h(px(14.)).children(
+                        .child(div().flex().gap_1().items_end().h(px(10.)).children(
                             row.stats.samples.iter().map(|sample| {
                                 div()
                                     .w(px(7.))
                                     .rounded(px(2.))
                                     .h(px(sample
                                         .as_ref()
-                                        .map(|ms| (ms / max * 13.).max(3.) as f32)
-                                        .unwrap_or(13.)))
+                                        .map(|ms| (ms / max * 9.).max(2.) as f32)
+                                        .unwrap_or(9.)))
                                     .bg(rgb(if sample.is_ok() {
-                                        if winner { ACCENT } else { 0x688fca }
+                                        if winner { colors.accent } else { colors.bar }
                                     } else {
-                                        0xca7979
+                                        colors.error
                                     }))
                             }),
                         ))
@@ -1042,8 +1138,8 @@ impl Dashboard {
                         div()
                             .size(px(52.))
                             .rounded(px(16.))
-                            .bg(rgb(0x19293d))
-                            .text_color(rgb(0x82a9d7))
+                            .bg(rgb(colors.empty_surface))
+                            .text_color(rgb(colors.empty_icon))
                             .flex()
                             .items_center()
                             .justify_center()
@@ -1051,13 +1147,13 @@ impl Dashboard {
                     )
                     .child(
                         div()
-                            .text_color(rgb(0xc0cde0))
+                            .text_color(rgb(colors.text))
                             .child("你的下一次测试，从这里开始"),
                     )
                     .child(label("选择左侧 DNS，输入域名，按 Enter 或点击开始测试。")),
             );
         }
-        panel()
+        panel(colors)
             .flex_1()
             .min_h(px(180.))
             .overflow_hidden()
@@ -1066,7 +1162,7 @@ impl Dashboard {
             .child(
                 div()
                     .px_4()
-                    .py_3()
+                    .py_2()
                     .flex()
                     .items_center()
                     .justify_between()
@@ -1130,9 +1226,9 @@ impl Dashboard {
                     .gap_2()
                     .px_4()
                     .py_2()
-                    .bg(rgb(0x152031))
+                    .bg(rgb(colors.table_header))
                     .border_y_1()
-                    .border_color(rgb(BORDER))
+                    .border_color(rgb(colors.border))
                     .child(div().w(px(116.)).flex_none().child(label("DNS 服务商")))
                     .child(div().flex_1().min_w_0().child(label("首个返回 IP")))
                     .child(div().w(px(72.)).flex_none().child(label("解析 / ms")))
@@ -1162,6 +1258,7 @@ impl Drop for Dashboard {
 
 impl Render for Dashboard {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = Palette::current(cx);
         let dns_done = self
             .rows
             .iter()
@@ -1174,28 +1271,38 @@ impl Render for Dashboard {
         } else {
             (dns_done + samples_done) as f32 / total as f32
         };
-        div().size_full().bg(rgb(BG)).text_color(rgb(TEXT)).font_family("Microsoft YaHei UI").text_size(px(13.))
+        div().size_full().bg(rgb(colors.background)).text_color(rgb(colors.text)).font_family("Microsoft YaHei UI").text_size(px(13.))
             .flex().flex_col()
-            .child(TitleBar::new().bg(rgb(0x0e1724)).border_color(rgb(BORDER))
-                .child(div().flex().items_center().gap_2().text_size(px(11.)).text_color(rgb(MUTED))
-                    .child(icon(IconName::Globe)).child("DNSPing").child(div().text_color(rgb(0x40536c)).child("/")).child("网络连接实验室")))
+            .child(TitleBar::new().bg(rgb(colors.sidebar)).border_color(rgb(colors.border))
+                .child(div().flex().items_center().gap_2().text_size(px(11.)).text_color(rgb(colors.muted))
+                    .child(icon(IconName::Globe)).child("DNSPing").child(div().text_color(rgb(colors.subtle)).child("/")).child("网络连接实验室")))
             .child(div().flex().flex_1().min_h_0().child(self.sidebar(cx))
-            .child(div().flex_1().min_w_0().h_full().flex().flex_col().p_6().gap_4()
+            .child(div().flex_1().min_w_0().h_full().flex().flex_col().p_4().gap_3()
                 .child(div().flex().items_center().justify_between()
-                    .child(div().flex().flex_col().gap_2()
-                        .child(div().text_size(px(26.)).font_weight(FontWeight::BOLD).child("发现更快的 IP"))
-                        .child(label("多 DNS 解析对比与网络延迟测试")))
-                    .child(div().flex().items_center().gap_2().px_3().py_2().rounded_full().bg(rgb(0x172a2a))
-                        .child(div().size(px(6.)).rounded_full().bg(rgb(ACCENT)))
-                        .child(div().text_color(rgb(ACCENT)).text_size(px(12.)).child(if self.running { "测试进行中" } else { "本机网络实测" }))))
+                    .child(div().flex().flex_col().gap_1()
+                        .child(div().text_size(px(22.)).font_weight(FontWeight::BOLD).child("优选你的 DNS"))
+                        .child(label("解析与连接质量对比 · 辅助选择 SmartDNS 上游")))
+                    .child(div().flex().items_center().gap_3()
+                        .child(Button::new("toggle-theme").small().ghost()
+                            .icon(if self.settings.dark_theme { IconName::Sun } else { IconName::Moon })
+                            .label(if self.settings.dark_theme { "浅色" } else { "深色" })
+                            .tooltip("切换深色 / 浅色主题")
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.settings.dark_theme = !this.settings.dark_theme;
+                                ui_theme::apply(this.settings.dark_theme, cx);
+                                this.persist(); window.refresh(); cx.notify();
+                            })))
+                        .child(div().flex().items_center().gap_2().px_3().py_2().rounded_full().bg(rgb(colors.accent_surface))
+                        .child(div().size(px(6.)).rounded_full().bg(rgb(colors.accent)))
+                        .child(div().text_color(rgb(colors.accent)).text_size(px(12.)).child(if self.running { "测试进行中" } else { "本机网络实测" })))))
                 .child(self.controls(cx))
                 .child(self.recommendation(cx))
-                .when(self.running, |el| el.child(div().h(px(3.)).rounded_full().bg(rgb(BORDER)).child(div().h_full().w(relative(progress.max(0.02))).rounded_full().bg(rgb(ACCENT)))))
+                .when(self.running, |el| el.child(div().h(px(3.)).rounded_full().bg(rgb(colors.border)).child(div().h_full().w(relative(progress.max(0.02))).rounded_full().bg(rgb(colors.accent)))))
                 .child(self.results(cx))
-                .child(div().flex().items_center().gap_2().text_size(px(12.)).text_color(rgb(if self.error { 0xf59898 } else { MUTED }))
+                .child(div().flex().items_center().gap_2().text_size(px(12.)).text_color(rgb(if self.error { colors.error } else { colors.muted }))
                     .child(icon(if self.error { IconName::TriangleAlert } else { IconName::Info }))
                     .child(div().flex_1().min_w_0().child(self.message.clone())))
-                .child(div().text_size(px(11.)).text_color(rgb(0x64778f)).child(if self.settings.probe == ProbeKind::Tcp {
+                .child(div().text_size(px(11.)).text_color(rgb(colors.subtle)).child(if self.settings.probe == ProbeKind::Tcp {
                     "TCPing 测量端口建连耗时；推荐适用于本轮网络和端口，不代表业务响应速度。"
                 } else { "Ping 使用 ICMP；部分服务器禁用 ICMP，无应答不一定表示网站不可访问。" }))))
     }

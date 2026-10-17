@@ -1,5 +1,7 @@
 /target/
 /dist/
+/settings.json
+/settings.invalid-*.json
 *.log
 
 # Local configuration, diagnostics, and editor files

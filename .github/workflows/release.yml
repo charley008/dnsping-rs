@@ -1,0 +1,81 @@
+name: Release Windows
+
+# Branch pushes and pull requests do not trigger builds.
+on:
+  push:
+    tags:
+      - 'v[0-9]*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    if: github.event.deleted == false
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install stable Rust and checks
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          if ($LASTEXITCODE -ne 0) { throw 'Rust installation failed' }
+          rustup default stable
+          if ($LASTEXITCODE -ne 0) { throw 'Rust toolchain selection failed' }
+
+      - name: Check release version
+        run: |
+          $metadata = cargo metadata --locked --no-deps --format-version 1 | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo metadata failed' }
+          $version = ($metadata.packages | Where-Object name -eq 'dnsping').version
+          if ($env:GITHUB_REF_NAME -cne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME must match Cargo.toml version v$version"
+          }
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run tests
+        run: cargo test --locked --all-targets
+
+      - name: Run Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: Build portable Windows package
+        run: ./scripts/package.ps1
+
+      - name: Publish release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $repo = $env:GITHUB_REPOSITORY
+          $assets = @('dist/DNSPing-windows-x64.zip', 'dist/DNSPing.exe', 'dist/SHA256SUMS.txt', 'dist/DNSPing-source.zip')
+          gh release view $tag --repo $repo --json id 2>$null | Out-Null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag @assets --repo $repo --clobber
+            if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
+          } else {
+            gh release create $tag @assets --repo $repo --verify-tag --draft --title "DNSPing $tag" --notes-file docs/RELEASE_NOTES.md
+            if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }
+          }
+          $publishArgs = @('release', 'edit', $tag, '--repo', $repo, '--draft=false')
+          if ($tag.Contains('-')) { $publishArgs += '--prerelease' }
+          gh @publishArgs
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

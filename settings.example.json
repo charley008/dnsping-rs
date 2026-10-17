@@ -1,0 +1,17 @@
+{
+  "domain": "",
+  "query": "Ipv4",
+  "probe": "Tcp",
+  "port": 80,
+  "samples": 5,
+  "timeout_ms": 2000,
+  "dark_theme": true,
+  "servers": [
+    { "name": "本地运营商", "address": "202.103.224.68", "enabled": true, "custom": false },
+    { "name": "阿里 DNS", "address": "223.5.5.5", "enabled": true, "custom": false },
+    { "name": "腾讯 DNS", "address": "119.29.29.29", "enabled": true, "custom": false },
+    { "name": "114 DNS", "address": "114.114.114.114", "enabled": true, "custom": false },
+    { "name": "Cloudflare", "address": "1.1.1.1", "enabled": false, "custom": false },
+    { "name": "Google", "address": "8.8.8.8", "enabled": false, "custom": false }
+  ]
+}

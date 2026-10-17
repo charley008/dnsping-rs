@@ -7,6 +7,7 @@ try {
     Copy-Item -LiteralPath target/release/dnsping.exe -Destination dist/DNSPing.exe
     Copy-Item -LiteralPath README.md -Destination dist/使用说明.md
     Copy-Item -LiteralPath LICENSE -Destination dist/LICENSE.txt
+    Copy-Item -LiteralPath settings.example.json -Destination dist/settings.example.json
     $metadata = cargo metadata --locked --format-version 1 | ConvertFrom-Json
     if ($LASTEXITCODE -ne 0) { throw 'Dependency inventory failed' }
     $lines = @('# Third-party dependency inventory', '', 'Direct and transitive Cargo dependencies; see each package for its license text.', '')
@@ -28,8 +29,8 @@ try {
     $lines | Set-Content -LiteralPath dist/THIRD-PARTY.md -Encoding utf8
     $hash = Get-FileHash -LiteralPath dist/DNSPing.exe -Algorithm SHA256
     ('{0}  DNSPing.exe' -f $hash.Hash.ToLowerInvariant()) | Set-Content -LiteralPath dist/SHA256SUMS.txt -Encoding ascii
-    Compress-Archive -LiteralPath dist/DNSPing.exe,dist/使用说明.md,dist/LICENSE.txt,dist/THIRD-PARTY.md,dist/SHA256SUMS.txt,dist/licenses -DestinationPath dist/DNSPing-windows-x64.zip -Force
-    Compress-Archive -LiteralPath src,assets,docs,scripts,.cargo,Cargo.toml,Cargo.lock,build.rs,README.md,LICENSE,.gitignore,.gitattributes -DestinationPath dist/DNSPing-source.zip -Force
+    Compress-Archive -LiteralPath dist/DNSPing.exe,dist/使用说明.md,dist/LICENSE.txt,dist/THIRD-PARTY.md,dist/SHA256SUMS.txt,dist/settings.example.json,dist/licenses -DestinationPath dist/DNSPing-windows-x64.zip -Force
+    Compress-Archive -LiteralPath src,assets,docs,scripts,.cargo,.github,Cargo.toml,Cargo.lock,build.rs,README.md,LICENSE,settings.example.json,.gitignore,.gitattributes -DestinationPath dist/DNSPing-source.zip -Force
     Get-Item -LiteralPath dist/DNSPing.exe,dist/DNSPing-windows-x64.zip,dist/DNSPing-source.zip | Select-Object FullName,Length
 } finally {
     Pop-Location

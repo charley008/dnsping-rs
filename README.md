@@ -1,10 +1,12 @@
 # DNSPing
 
-Windows 专用的 Rust + GPUI 桌面 DNS 对比测速工具。GPU 绘制界面，中文深色主题，不需要浏览器或 WebView2。
+Windows 专用的 Rust + GPUI 桌面 DNS 对比测速工具，辅助选择 SmartDNS 上游。GPU 绘制界面，支持中文深色 / 浅色主题，不需要浏览器或 WebView2。
 
 ![DNSPing Windows 实际运行界面](docs/preview.jpg)
 
 ## 使用
+
+从 [GitHub Releases](https://github.com/charley008/dnsping-rs/releases/latest) 下载 `DNSPing-windows-x64.zip`，解压后即可使用，无需编译环境。
 
 运行打包后的 `DNSPing.exe`（本地打包位于 `dist/DNSPing.exe`）。选择左侧 DNS 服务商，输入纯域名，点击「开始测试」或在域名输入框按 Enter。
 
@@ -25,9 +27,15 @@ Windows 专用的 Rust + GPUI 桌面 DNS 对比测速工具。GPU 绘制界面�
 | Cloudflare | 1.1.1.1 | 否 |
 | Google | 8.8.8.8 | 否 |
 
-支持添加、删除自定义 DNS；名称 1–24 字符，地址为 IPv4 或 IPv6，DNS 端口固定为 53。最多 32 个服务商。次数 1–30，超时 200–10000 ms。
+每个服务商右侧都有「编辑」按钮，内置及自定义 DNS 均可修改名称和 IP 地址；表单会填入原值，点击「保存修改」更新原条目，点击「取消」放弃修改。编辑保留原来的勾选状态，并检查无效地址及重复 IP。支持添加、删除自定义 DNS；名称 1–24 字符，地址为 IPv4 或 IPv6，DNS 端口固定为 53。最多 32 个服务商。次数 1–30，超时 200–10000 ms。
 
-配置保存在 `%LOCALAPPDATA%\DNSPing\settings.json`，包括域名、测试设置和 DNS 列表。配置损坏时提示并恢复默认值。应用不修改系统 DNS、hosts 或其他网络设置，不自动开始测试。
+右上角可一键切换深色 / 浅色主题，并记住上次选择。推荐区域采用紧凑横条，默认窗口可展示至少 5 条常规测速结果；更多结果可继续滚动查看。推荐 DNS 和其返回 IP 均可一键复制。
+
+配置保存在 **`DNSPing.exe` 同目录的 `settings.json`**，包括域名、测试设置、主题和 DNS 列表。首次启动会创建配置；如果存在旧版 `%LOCALAPPDATA%\DNSPing\settings.json`，会迁移到程序目录并保留旧文件。左下角「配置文件」可定位该文件。应用不修改系统 DNS、hosts 或其他网络设置，不自动开始测试。
+
+可以关闭程序后手动编辑 JSON，再重启生效；格式参考 [settings.example.json](settings.example.json)。名称与地址分别为 `name`、`address`，`enabled` 控制是否参与测试；`query` 可选 `Ipv4` / `Ipv6`，`probe` 可选 `Tcp` / `Icmp`，`dark_theme` 为 `true` / `false`。DNS 条目的 `enabled`、`custom` 字段可省略，省略时均为 `true`。支持 UTF-8 BOM；无效配置会提示，恢复保存前会备份为 `settings.invalid-*.json`。
+
+程序目录需要可写。升级时关闭程序，用新版 ZIP 覆盖原目录即可；发行包只包含配置示例，不包含实际 `settings.json`，不会覆盖你的 DNS 配置。
 
 ## 如何理解结果
 
@@ -72,4 +80,4 @@ cargo run --locked --bin dnsping-check -- www.example.com --icmp --ipv6
 
 ## 上传到 GitHub
 
-仓库只跟踪源码、锁定的依赖、文档和界面资源；`target/`、`dist/` 和日志已忽略。可执行文件与发行 ZIP 适合作为 GitHub Release 附件上传。首次连接仓库及推送步骤见 [docs/GITHUB.md](docs/GITHUB.md)。
+仓库只跟踪源码、锁定的依赖、文档和界面资源；`target/`、`dist/`、实际配置和日志已忽略。推送匹配 Cargo 版本的标签（例如 `v0.1.0`）会触发 Windows 编译、测试、打包并自动发布 GitHub Release；普通分支推送不触发编译。操作步骤见 [docs/GITHUB.md](docs/GITHUB.md)。
