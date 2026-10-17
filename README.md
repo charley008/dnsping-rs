@@ -76,3 +76,7 @@ cargo run --locked --bin dnsping-check -- www.example.com --icmp --ipv6
 支持 `--dns`、`--port`、`--samples`、`--timeout`、`--icmp`、`--ipv6`；输出 CSV 与最终推荐 IP。诊断入口不会写入图形界面配置。
 
 本项目通过 Codex（GPT-6.1 SOL）辅助开发。
+
+## 许可
+
+本项目采用 [MIT License](LICENSE)。
